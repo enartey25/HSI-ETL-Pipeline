@@ -19,7 +19,7 @@ conn = psycopg2.connect(
     dbname = os.getenv('DB_NAME'),
     user = os.getenv('DB_USER'),
     password = os.getenv('DB_PASSWORD'),
-    ssl = 'require'
+    sslmode = 'require'
 )
 
 def extract(symbol):
