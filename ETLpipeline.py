@@ -4,9 +4,14 @@ import numpy as np
 import yfinance as yf
 import pandas as pd
 import psycopg2
+import logging
+from psycopg2.extras import execute_values
 pd.set_option('display.max_columns', 100)
 
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 load_dotenv()
+logger = logging.getLogger(__name__)
+
 
 conn = psycopg2.connect(
     host = os.getenv('DB_HOST'),
@@ -26,7 +31,6 @@ def extract(symbol):
 
     return data
 
-df = extract("^HSI")
 
 def summarize(df, n:int):
     print('\n')
@@ -38,8 +42,6 @@ def summarize(df, n:int):
     print(df.describe().T)
     print(f'=============COLUMNS==============')
     print(df.columns)
-
-summarize(df, 8)
 
 def transform(df):
     try: 
@@ -55,6 +57,7 @@ def transform(df):
         df['clv'] = ((df['close'] - df['low']) - (df['high'] - df['close'])) / range_span
         df['vol_change'] = (df['volume'] - df['volume'].shift(1)) / df['volume'].shift(1)
         df['vol_ag_20dayavg'] = df['volume'] / df['volume'].shift(1).rolling(window = 20).mean()
+        df = df.replace([np.inf, -np.inf], np.nan)
         df = df.where(pd.notnull(df), None)
         return df
     except KeyError as e:
@@ -66,3 +69,33 @@ def transform(df):
     except Exception as g:
         print('Unexpected failure: ', g)
         raise
+
+def load(df, conn, table_name):
+    if df.empty:
+        logger.info('No record to load. Stopping process.')
+        return 0
+    cols = list(df.columns)
+    values = df[cols].values.tolist()
+    col_names = ', '.join(cols)
+    update_cols = ", ".join(
+        f"{c} = EXCLUDED.{c}" for c in cols if c != "trade_date"
+    )
+
+    query = f'''INSERT INTO {table_name} ({col_names})
+    values %s
+    on conflict (trade_date) do update set
+    {update_cols}'''
+    try:
+        with conn.cursor() as cur:
+            execute_values(cur, query, values)
+        conn.commit()
+        logger.info(f'Loaded {len(df)} records into {table_name}.')
+        return len(df)
+    except Exception as e:
+        conn.rollback()
+        logger.error(f"Load failed, rolled back: {e}")
+        raise
+    finally:
+        conn.close()
+
+load(transform(extract('^HSI')), conn, 'hsi_features')
