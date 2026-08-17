@@ -1,4 +1,5 @@
 from dotenv import load_dotenv
+from datetime import datetime
 import os
 import numpy as np
 import yfinance as yf
@@ -26,7 +27,7 @@ def extract(symbol):
     data = yf.download(
         symbol,
         start="2006-01-01",
-        end="2026-08-15",
+        end=datetime.today().strftime('%Y-%m-%d'),
         interval="1d"
     )
 
